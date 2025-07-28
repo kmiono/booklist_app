@@ -33,21 +33,43 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   List items = [];
+  bool isLoading = true;
+  String? errorMessage;
 
   Future<void> getData() async {
-    var response = await http.get(
-      Uri.https('www.googleapis.com', '/books/v1/volumes', {
-        'q': '{flutter}',
-        'maxResults': '40',
-        'langRestrict': 'ja',
-      }),
-    );
+    try {
+      setState(() {
+        isLoading = true;
+        errorMessage = null;
+      });
 
-    var jsonResponse = jsonDecode(response.body);
+      var response = await http.get(
+        Uri.https('www.googleapis.com', '/books/v1/volumes', {
+          'q': 'flutter', // 中括弧を削除
+          'maxResults': '40',
+          'langRestrict': 'ja',
+        }),
+      );
 
-    setState(() {
-      items = jsonResponse['items'];
-    });
+      if (response.statusCode == 200) {
+        var jsonResponse = jsonDecode(response.body);
+
+        setState(() {
+          items = jsonResponse['items'] ?? [];
+          isLoading = false;
+        });
+      } else {
+        setState(() {
+          errorMessage = 'データの取得に失敗しました: ${response.statusCode}';
+          isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        errorMessage = 'エラーが発生しました: $e';
+        isLoading = false;
+      });
+    }
   }
 
   @override
@@ -64,24 +86,39 @@ class _MyHomePageState extends State<MyHomePage> {
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         title: Text(widget.title),
       ),
-      body: ListView.builder(
-        itemCount: items.length,
-        itemBuilder: (BuildContext context, int index) {
-          return Card(
-            child: Column(
-              children: [
-                ListTile(
-                  leading: Image.network(
-                    items[index]['volumeInfo']['imageLinks']['thumbnail'],
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : errorMessage != null
+          ? Center(child: Text(errorMessage!))
+          : items.isEmpty
+          ? const Center(child: Text('本が見つかりませんでした'))
+          : ListView.builder(
+              itemCount: items.length,
+              itemBuilder: (BuildContext context, int index) {
+                final item = items[index];
+                final volumeInfo = item['volumeInfo'] ?? {};
+                final imageLinks = volumeInfo['imageLinks'] ?? {};
+
+                return Card(
+                  child: Column(
+                    children: [
+                      ListTile(
+                        leading: imageLinks['thumbnail'] != null
+                            ? Image.network(
+                                imageLinks['thumbnail'],
+                                errorBuilder: (context, error, stackTrace) {
+                                  return const Icon(Icons.book);
+                                },
+                              )
+                            : const Icon(Icons.book),
+                        title: Text(volumeInfo['title'] ?? 'タイトルなし'),
+                        subtitle: Text(volumeInfo['publishedDate'] ?? '出版日不明'),
+                      ),
+                    ],
                   ),
-                  title: Text(items[index]['volumeInfo']['title']),
-                  subtitle: items[index]['volumeInfo']['publishedDate'],
-                ),
-              ],
+                );
+              },
             ),
-          );
-        },
-      ),
     );
   }
 }
